@@ -16,16 +16,19 @@ async function redis(command) {
   if (!response.ok) throw new Error(`Redis error ${response.status}`);
   return response.json();
 }
-function cleanText(v,n=500){ return typeof v==="string" ? v.slice(0,n) : ""; }
-function cleanItem(x){
+function text(v,n=1500000){ return typeof v==="string" ? v.slice(0,n) : ""; }
+function cleanItem(x={}) {
   return {
     id: Number.isFinite(Number(x.id)) ? Number(x.id) : Date.now(),
-    cat:cleanText(x.cat,60), brand:cleanText(x.brand,100), name:cleanText(x.name,200),
-    qty:Math.max(1,Math.min(99,Number(x.qty)||1)), model:cleanText(x.model,120),
-    priority:cleanText(x.priority,60), note:cleanText(x.note,1000),
-    status:["wait","found","done","no","help"].includes(x.status)?x.status:"wait",
-    img:cleanText(x.img,1500000),
-    shots:Array.isArray(x.shots)?x.shots.filter(v=>typeof v==="string").slice(0,8).map(v=>v.slice(0,1500000)):[]
+    name: text(x.name,300) || "未命名商品",
+    qty: Math.max(1, Math.min(99, Number(x.qty)||1)),
+    rule: text(x.rule,1500),
+    norule: text(x.norule,1500),
+    backup: text(x.backup,1500),
+    status: ["wait","found","done","no","help"].includes(x.status) ? x.status : "wait",
+    mustConfirm: Boolean(x.mustConfirm),
+    photo: text(x.photo),
+    ref: text(x.ref)
   };
 }
 export default async function handler(req,res){
@@ -33,13 +36,13 @@ export default async function handler(req,res){
   try{
     if(req.method==="GET"){
       const data=await redis(["GET",KEY]);
-      return res.status(200).json(data.result?JSON.parse(data.result):{});
+      return res.status(200).json(data.result ? JSON.parse(data.result) : {});
     }
     if(req.method==="POST"){
       const body=req.body||{};
       const state={
-        trip:cleanText(body.trip,120),
-        items:Array.isArray(body.items)?body.items.slice(0,100).map(cleanItem):[],
+        trip:text(body.trip,120),
+        items:Array.isArray(body.items) ? body.items.slice(0,100).map(cleanItem) : [],
         updatedAt:new Date().toISOString()
       };
       await redis(["SET",KEY,JSON.stringify(state)]);
