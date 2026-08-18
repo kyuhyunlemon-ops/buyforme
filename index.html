@@ -62,31 +62,67 @@ const starter=[
 let items=JSON.parse(localStorage.getItem("buyforme-items-v8")||"null")||starter;
 let trip=localStorage.getItem("buyforme-trip")||"東京代購任務 🇯🇵";
 let syncTimer=null;
-const localSave=()=>{localStorage.setItem("buyforme-items-v8",JSON.stringify(items));localStorage.setItem("buyforme-trip",trip)};
+let lastCloudUpdatedAt="";
+let applyingCloud=false;
+
+const localSave=()=>{
+  localStorage.setItem("buyforme-items-v8",JSON.stringify(items));
+  localStorage.setItem("buyforme-trip",trip);
+};
+
+function cloudState(){
+  return {
+    trip,
+    items: items.map(x=>({
+      id:x.id,cat:x.cat,brand:x.brand,name:x.name,qty:x.qty,model:x.model||"",
+      priority:x.priority||"",note:x.note||"",status:x.status||"wait",
+      img:x.img||"",shots:Array.isArray(x.shots)?x.shots:[]
+    }))
+  };
+}
+
 async function pushCloud(){
-  const state={trip,statuses:Object.fromEntries(items.map(x=>[String(x.id),x.status]))};
+  if(applyingCloud)return;
   try{
-    const r=await fetch("/api/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(state)});
-    if(!r.ok) throw new Error("sync failed");
+    const r=await fetch("/api/state",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(cloudState())
+    });
+    if(!r.ok)throw new Error("sync failed");
+    const data=await r.json();
+    if(data.updatedAt)lastCloudUpdatedAt=data.updatedAt;
   }catch(e){console.warn("Cloud sync unavailable; local copy kept.",e)}
 }
-const save=()=>{localSave();clearTimeout(syncTimer);syncTimer=setTimeout(pushCloud,150)};
+
+const save=()=>{
+  localSave();
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(pushCloud,180);
+};
+
 async function pullCloud(){
   try{
     const r=await fetch("/api/state",{cache:"no-store"});
     if(!r.ok)return;
     const state=await r.json();
-    if(state&&state.statuses){
-      items.forEach(x=>{const s=state.statuses[String(x.id)];if(s)x.status=s});
-      if(state.trip)trip=state.trip;
-      localSave();render();
-    }else{
+    if(!state || !Array.isArray(state.items)){
       await pushCloud();
+      return;
     }
-  }catch(e){console.warn("Cloud sync unavailable; using local copy.",e)}
+    if(state.updatedAt && state.updatedAt===lastCloudUpdatedAt)return;
+    applyingCloud=true;
+    items=state.items;
+    if(typeof state.trip==="string" && state.trip)trip=state.trip;
+    lastCloudUpdatedAt=state.updatedAt||"";
+    localSave();
+    render();
+    applyingCloud=false;
+  }catch(e){
+    applyingCloud=false;
+    console.warn("Cloud sync unavailable; using local copy.",e);
+  }
 }
-const esc=s=>(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-function badge(s){return {wait:["待尋找","s-wait"],found:["等確認","s-found"],done:["已購買","s-done"],no:["缺貨","s-no"],help:["🆘 求救中","s-no"]}[s]||["待尋找","s-wait"]}
 function render(){
  document.getElementById("tripName").textContent=trip; document.getElementById("tripInput").value=trip;
  const d=items.filter(x=>x.status==="done").length,n=items.filter(x=>x.status==="no").length,w=items.length-d-n;
