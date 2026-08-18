@@ -136,6 +136,20 @@ async function pullCloud(){
     console.warn("Cloud sync unavailable; using local copy.",e);
   }
 }
+function esc(value){
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+}
+function badge(status){
+  const map={
+    wait:["等待","s-wait"],
+    found:["待確認","s-found"],
+    help:["求救中","s-found"],
+    done:["已購買","s-done"],
+    no:["缺貨","s-no"]
+  };
+  return map[status] || map.wait;
+}
+
 function render(){
  document.getElementById("tripName").textContent=trip; document.getElementById("tripInput").value=trip;
  const d=items.filter(x=>x.status==="done").length,n=items.filter(x=>x.status==="no").length,w=items.length-d-n;
