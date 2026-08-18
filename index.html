@@ -61,7 +61,78 @@ const starter=[
 ];
 let items=JSON.parse(localStorage.getItem("buyforme-items-v8")||"null")||starter;
 let trip=localStorage.getItem("buyforme-trip")||"東京代購任務 🇯🇵";
-const save=()=>{localStorage.setItem("buyforme-items-v8",JSON.stringify(items));localStorage.setItem("buyforme-trip",trip)}
+let syncTimer=null, lastCloudUpdatedAt="", cloudReady=false, applyingCloud=false;
+
+const localSave=()=>{
+  localStorage.setItem("buyforme-items-v8",JSON.stringify(items));
+  localStorage.setItem("buyforme-trip",trip);
+};
+
+function cleanItem(x={}){
+  return {
+    id:x.id ?? Date.now(),
+    name:String(x.name ?? "未命名商品"),
+    qty:Number(x.qty)||1,
+    rule:String(x.rule ?? ""),
+    norule:String(x.norule ?? ""),
+    backup:String(x.backup ?? ""),
+    status:["wait","found","done","no","help"].includes(x.status)?x.status:"wait",
+    mustConfirm:Boolean(x.mustConfirm),
+    photo:String(x.photo ?? ""),
+    ref:String(x.ref ?? "")
+  };
+}
+items=items.map(cleanItem);
+
+async function pushCloud(){
+  if(applyingCloud)return;
+  try{
+    const r=await fetch("/api/state",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({trip,items:items.map(cleanItem)})
+    });
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    lastCloudUpdatedAt=data.updatedAt||lastCloudUpdatedAt;
+    cloudReady=true;
+  }catch(e){ console.warn("同步上傳失敗，本機資料仍保留",e); }
+}
+
+const save=()=>{
+  localSave();
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(pushCloud,250);
+};
+
+async function pullCloud(){
+  try{
+    const r=await fetch("/api/state",{cache:"no-store"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const state=await r.json();
+
+    // 新版雲端第一次是空的：以「目前這台裝置」的本機清單建立雲端。
+    // 因此升級後請先用資料最完整的電腦開一次。
+    if(!Array.isArray(state.items)){
+      await pushCloud();
+      return;
+    }
+
+    if(state.updatedAt && state.updatedAt===lastCloudUpdatedAt)return;
+    applyingCloud=true;
+    items=state.items.map(cleanItem);
+    if(typeof state.trip==="string" && state.trip)trip=state.trip;
+    lastCloudUpdatedAt=state.updatedAt||"";
+    cloudReady=true;
+    localSave();
+    render();
+    applyingCloud=false;
+  }catch(e){
+    applyingCloud=false;
+    console.warn("同步讀取失敗，暫時使用本機資料",e);
+  }
+}
+
 function esc(value){
   const div=document.createElement("div");
   div.textContent=String(value ?? "");
@@ -75,16 +146,45 @@ function render(){
  buyerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div class="card item" onclick="openItem(${i})"><div class="thumb">${x.ref?`<img src="${x.ref}">`:"💄"}</div><div><div class="name">${esc(x.name)} ×${x.qty}</div><div class="rule">${esc(x.rule)}</div>${x.backup?`<div class="muted small">備案：${esc(x.backup)}</div>`:""}</div><div class="status ${b[1]}">${b[0]}</div></div>`}).join("");
  ownerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div style="padding:12px 0;border-bottom:1px solid #eee"><div class="row"><div><b>${esc(x.name)}</b><div class="muted">${esc(x.rule)}</div></div><span class="status ${b[1]}">${b[0]}</span></div>${x.photo?`<img class="photo" src="${x.photo}">`:""}<div class="actions">${x.status==="found"||x.status==="help"?`<button class="success" onclick="setStatus(${i},'done')">✅ 對，可以買</button><button class="danger" onclick="setStatus(${i},'wait')">❌ 不對，繼續找</button>`:""}<button class="secondary" onclick="editItem(${i})">✏️ 編輯</button><button class="secondary" onclick="changeRef(${i})">🖼️ 換照片</button><button class="secondary full" onclick="removeItem(${i})">刪除商品</button></div></div>`}).join("")||"<div class=muted>還沒有商品</div>";
 }
+function imageFileToDataURL(file,maxSide=1200,quality=.78){
+ return new Promise((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onerror=reject;
+  reader.onload=()=>{
+   const img=new Image();
+   img.onerror=()=>resolve(reader.result);
+   img.onload=()=>{
+    let w=img.width,h=img.height,scale=Math.min(1,maxSide/Math.max(w,h));
+    const c=document.createElement("canvas");
+    c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    resolve(c.toDataURL("image/jpeg",quality));
+   };
+   img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+ });
+}
 function openItem(i){let x=items[i],b=badge(x.status);modalBody.innerHTML=`<div class="muted">代購任務</div><h1>${esc(x.name)} ×${x.qty}</h1>${x.ref?`<img class="photo" src="${x.ref}">`:""}<div class="big-rule">⭕ ${esc(x.rule||"照參考照片購買")}</div>${x.norule?`<div class="notice">❌ ${esc(x.norule)}</div>`:""}${x.backup?`<div class="notice"><b>找不到時：</b>${esc(x.backup)}</div>`:""}${x.mustConfirm?`<div class="notice"><b>🚨 這件禁止自己判斷</b><br>找到後請先拍照，等對方確認。</div>`:""}${x.photo?`<p><b>你拍的照片：</b></p><img class="photo" src="${x.photo}">${x.status==="found"&&!x.mustConfirm?`<div class="notice"><b>照片已上傳。</b><br>如果你確定就是這個，可以直接買；不確定就留在待確認。</div>`:""}${x.status==="help"?`<div class="notice"><b>🆘 已送出求救</b><br>照片已留下，等對方查看。</div>`:""}`:""}<div class="actions"><label class="btn primary full" style="text-align:center">📸 找到了，拍照確認<input hidden type="file" accept="image/*" capture="environment" onchange="uploadFound(event,${i})"></label>${x.mustConfirm?`<button class="secondary" disabled>🔒 等對方確認</button>`:`<button class="success" onclick="setStatus(${i},'done');closeModal()">🛍️ ${x.photo?"照片已上傳，直接買":"已經買了"}</button>`}<button class="danger" onclick="setStatus(${i},'no');closeModal()">❌ 店員說沒貨</button><label class="btn secondary full" style="text-align:center">🆘 我看不懂，拍照求救<input hidden type="file" accept="image/*" capture="environment" onchange="uploadHelp(event,${i})"></label></div>`;modal.classList.add("show")}
 function closeModal(){modal.classList.remove("show")}
 function setStatus(i,s){items[i].status=s;save();render()}
-function uploadFound(e,i){let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{items[i].photo=r.result;items[i].status="found";save();render();openItem(i)};r.readAsDataURL(f)}
-
-function uploadHelp(e,i){
- let f=e.target.files[0];if(!f)return;
- let r=new FileReader;
- r.onload=()=>{items[i].photo=r.result;items[i].status="help";save();render();openItem(i)};
- r.readAsDataURL(f);
+async function uploadFound(e,i){
+ const f=e.target.files[0]; if(!f)return;
+ try{
+  items[i].photo=await imageFileToDataURL(f);
+  items[i].status="found";
+  localSave(); render(); openItem(i);
+  await pushCloud();
+ }catch(err){alert("照片處理失敗，請再拍一次。");console.error(err)}
+}
+async function uploadHelp(e,i){
+ const f=e.target.files[0]; if(!f)return;
+ try{
+  items[i].photo=await imageFileToDataURL(f);
+  items[i].status="help";
+  localSave(); render(); openItem(i);
+  await pushCloud();
+ }catch(err){alert("照片處理失敗，請再拍一次。");console.error(err)}
 }
 
 function addItem(){trip=tripInput.value.trim()||trip;let f=refPhoto.files[0];let make=(ref="")=>{items.push({id:Date.now(),name:nameInput.value.trim()||"未命名商品",qty:+qtyInput.value||1,rule:ruleInput.value.trim(),norule:noRuleInput.value.trim(),backup:backupInput.value.trim(),status:"wait",mustConfirm:confirmInput.checked,photo:"",ref});save();render();nameInput.value=ruleInput.value=noRuleInput.value=backupInput.value="";refPhoto.value="";confirmInput.checked=false};if(f){let r=new FileReader;r.onload=()=>make(r.result);r.readAsDataURL(f)}else make()}
@@ -112,5 +212,5 @@ function changeRef(i){
 function saveRef(e,i){let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{items[i].ref=r.result;save();render();closeModal()};r.readAsDataURL(f)}
 
 function switchRole(r){buyerView.classList.toggle("hidden",r!=="buyer");ownerView.classList.toggle("hidden",r!=="owner");buyerTab.classList.toggle("active",r==="buyer");ownerTab.classList.toggle("active",r==="owner");roleLabel.textContent=r==="buyer"?"代購模式":"清單建立者"}
-tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();
+tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();pullCloud();setInterval(pullCloud,3000);
 </script></body></html>
