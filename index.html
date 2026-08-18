@@ -61,7 +61,30 @@ const starter=[
 ];
 let items=JSON.parse(localStorage.getItem("buyforme-items-v8")||"null")||starter;
 let trip=localStorage.getItem("buyforme-trip")||"東京代購任務 🇯🇵";
-const save=()=>{localStorage.setItem("buyforme-items-v8",JSON.stringify(items));localStorage.setItem("buyforme-trip",trip)}
+let syncTimer=null;
+const localSave=()=>{localStorage.setItem("buyforme-items-v8",JSON.stringify(items));localStorage.setItem("buyforme-trip",trip)};
+async function pushCloud(){
+  const state={trip,statuses:Object.fromEntries(items.map(x=>[String(x.id),x.status]))};
+  try{
+    const r=await fetch("/api/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(state)});
+    if(!r.ok) throw new Error("sync failed");
+  }catch(e){console.warn("Cloud sync unavailable; local copy kept.",e)}
+}
+const save=()=>{localSave();clearTimeout(syncTimer);syncTimer=setTimeout(pushCloud,150)};
+async function pullCloud(){
+  try{
+    const r=await fetch("/api/state",{cache:"no-store"});
+    if(!r.ok)return;
+    const state=await r.json();
+    if(state&&state.statuses){
+      items.forEach(x=>{const s=state.statuses[String(x.id)];if(s)x.status=s});
+      if(state.trip)trip=state.trip;
+      localSave();render();
+    }else{
+      await pushCloud();
+    }
+  }catch(e){console.warn("Cloud sync unavailable; using local copy.",e)}
+}
 const esc=s=>(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 function badge(s){return {wait:["待尋找","s-wait"],found:["等確認","s-found"],done:["已購買","s-done"],no:["缺貨","s-no"],help:["🆘 求救中","s-no"]}[s]||["待尋找","s-wait"]}
 function render(){
@@ -108,5 +131,5 @@ function changeRef(i){
 function saveRef(e,i){let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{items[i].ref=r.result;save();render();closeModal()};r.readAsDataURL(f)}
 
 function switchRole(r){buyerView.classList.toggle("hidden",r!=="buyer");ownerView.classList.toggle("hidden",r!=="owner");buyerTab.classList.toggle("active",r==="buyer");ownerTab.classList.toggle("active",r==="owner");roleLabel.textContent=r==="buyer"?"代購模式":"清單建立者"}
-tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();
+tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();pullCloud();setInterval(pullCloud,5000);
 </script></body></html>
