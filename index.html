@@ -102,7 +102,7 @@ async function pushCloud(){
 const save=()=>{
   localSave();
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(pushCloud,250);
+  if(cloudReady || items.length>=13) syncTimer=setTimeout(pushCloud,250);
 };
 
 async function pullCloud(){
@@ -114,7 +114,13 @@ async function pullCloud(){
     // 新版雲端第一次是空的：以「目前這台裝置」的本機清單建立雲端。
     // 因此升級後請先用資料最完整的電腦開一次。
     if(!Array.isArray(state.items)){
-      await pushCloud();
+      // 初次建立雲端時，只允許「完整清單」裝置當母資料。
+      // 目前完整清單為 13 筆；手機舊的 10 筆絕對不能先覆蓋雲端。
+      if(items.length>=13){
+        await pushCloud();
+      }else{
+        console.log("等待完整清單裝置建立雲端，目前本機只有",items.length,"筆");
+      }
       return;
     }
 

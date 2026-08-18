@@ -1,4 +1,4 @@
-const KEY = "buyforme:shared-state:v3";
+const KEY = "buyforme:shared-state:v4";
 
 function env(){
   const url=process.env.KV_REST_API_URL || process.env.STORAGE_KV_REST_API_URL;
