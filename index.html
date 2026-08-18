@@ -61,103 +61,21 @@ const starter=[
 ];
 let items=JSON.parse(localStorage.getItem("buyforme-items-v8")||"null")||starter;
 let trip=localStorage.getItem("buyforme-trip")||"東京代購任務 🇯🇵";
-let syncTimer=null;
-let lastCloudUpdatedAt="";
-let applyingCloud=false;
-items=items.map(x=>x||{});
-
-const localSave=()=>{
-  localStorage.setItem("buyforme-items-v8",JSON.stringify(items));
-  localStorage.setItem("buyforme-trip",trip);
-};
-
-function normalizeItem(x){
-  x=x||{};
-  const base=starter.find(s=>s.id===x.id || (x.name && s.name===x.name))||{};
-  return {
-    id:x.id??base.id??Date.now(),
-    name:x.name??base.name??"未命名商品",
-    qty:Number(x.qty??base.qty??1)||1,
-    rule:x.rule??base.rule??"",
-    norule:x.norule??base.norule??"",
-    backup:x.backup??base.backup??"",
-    status:x.status??base.status??"wait",
-    mustConfirm:Boolean(x.mustConfirm??base.mustConfirm??false),
-    photo:x.photo??base.photo??"",
-    ref:x.ref??base.ref??""
-  };
-}
-function cloudState(){
-  return {
-    trip,
-    items: items.map(normalizeItem)
-  };
-}
-
-async function pushCloud(){
-  if(applyingCloud)return;
-  try{
-    const r=await fetch("/api/state",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(cloudState())
-    });
-    if(!r.ok)throw new Error("sync failed");
-    const data=await r.json();
-    if(data.updatedAt)lastCloudUpdatedAt=data.updatedAt;
-  }catch(e){console.warn("Cloud sync unavailable; local copy kept.",e)}
-}
-
-const save=()=>{
-  localSave();
-  clearTimeout(syncTimer);
-  syncTimer=setTimeout(pushCloud,180);
-};
-
-async function pullCloud(){
-  try{
-    const r=await fetch("/api/state",{cache:"no-store"});
-    if(!r.ok)return;
-    const state=await r.json();
-    if(!state || !Array.isArray(state.items)){
-      await pushCloud();
-      return;
-    }
-    if(state.updatedAt && state.updatedAt===lastCloudUpdatedAt)return;
-    applyingCloud=true;
-    items=state.items.map(normalizeItem);
-    if(typeof state.trip==="string" && state.trip)trip=state.trip;
-    lastCloudUpdatedAt=state.updatedAt||"";
-    localSave();
-    render();
-    applyingCloud=false;
-  }catch(e){
-    applyingCloud=false;
-    console.warn("Cloud sync unavailable; using local copy.",e);
-  }
-}
+const save=()=>{localStorage.setItem("buyforme-items-v8",JSON.stringify(items));localStorage.setItem("buyforme-trip",trip)}
 function esc(value){
-  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+  const div=document.createElement("div");
+  div.textContent=String(value ?? "");
+  return div.innerHTML;
 }
-function badge(status){
-  const map={
-    wait:["等待","s-wait"],
-    found:["待確認","s-found"],
-    help:["求救中","s-found"],
-    done:["已購買","s-done"],
-    no:["缺貨","s-no"]
-  };
-  return map[status] || map.wait;
-}
-
+function badge(s){return {wait:["待尋找","s-wait"],found:["等確認","s-found"],done:["已購買","s-done"],no:["缺貨","s-no"],help:["🆘 求救中","s-no"]}[s]||["待尋找","s-wait"]}
 function render(){
  document.getElementById("tripName").textContent=trip; document.getElementById("tripInput").value=trip;
  const d=items.filter(x=>x.status==="done").length,n=items.filter(x=>x.status==="no").length,w=items.length-d-n;
  doneN.textContent=d;noN.textContent=n;waitN.textContent=w;bar.style.width=(items.length?d/items.length*100:0)+"%";
- buyerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div class="card item" onclick="openItem(${i})"><div class="thumb">${x.ref?`<img src="${x.ref}">`:"💄"}</div><div><div class="name">${esc(x.name)} ×${x.qty}</div><div class="rule">${esc(x.rule||"")}</div>${x.backup?`<div class="muted small">備案：${esc(x.backup||"")}</div>`:""}</div><div class="status ${b[1]}">${b[0]}</div></div>`}).join("");
- ownerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div style="padding:12px 0;border-bottom:1px solid #eee"><div class="row"><div><b>${esc(x.name)}</b><div class="muted">${esc(x.rule||"")}</div></div><span class="status ${b[1]}">${b[0]}</span></div>${x.photo?`<img class="photo" src="${x.photo}">`:""}<div class="actions">${x.status==="found"||x.status==="help"?`<button class="success" onclick="setStatus(${i},'done')">✅ 對，可以買</button><button class="danger" onclick="setStatus(${i},'wait')">❌ 不對，繼續找</button>`:""}<button class="secondary" onclick="editItem(${i})">✏️ 編輯</button><button class="secondary" onclick="changeRef(${i})">🖼️ 換照片</button><button class="secondary full" onclick="removeItem(${i})">刪除商品</button></div></div>`}).join("")||"<div class=muted>還沒有商品</div>";
+ buyerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div class="card item" onclick="openItem(${i})"><div class="thumb">${x.ref?`<img src="${x.ref}">`:"💄"}</div><div><div class="name">${esc(x.name)} ×${x.qty}</div><div class="rule">${esc(x.rule)}</div>${x.backup?`<div class="muted small">備案：${esc(x.backup)}</div>`:""}</div><div class="status ${b[1]}">${b[0]}</div></div>`}).join("");
+ ownerList.innerHTML=items.map((x,i)=>{let b=badge(x.status);return `<div style="padding:12px 0;border-bottom:1px solid #eee"><div class="row"><div><b>${esc(x.name)}</b><div class="muted">${esc(x.rule)}</div></div><span class="status ${b[1]}">${b[0]}</span></div>${x.photo?`<img class="photo" src="${x.photo}">`:""}<div class="actions">${x.status==="found"||x.status==="help"?`<button class="success" onclick="setStatus(${i},'done')">✅ 對，可以買</button><button class="danger" onclick="setStatus(${i},'wait')">❌ 不對，繼續找</button>`:""}<button class="secondary" onclick="editItem(${i})">✏️ 編輯</button><button class="secondary" onclick="changeRef(${i})">🖼️ 換照片</button><button class="secondary full" onclick="removeItem(${i})">刪除商品</button></div></div>`}).join("")||"<div class=muted>還沒有商品</div>";
 }
-function openItem(i){let x=items[i],b=badge(x.status);modalBody.innerHTML=`<div class="muted">代購任務</div><h1>${esc(x.name)} ×${x.qty}</h1>${x.ref?`<img class="photo" src="${x.ref}">`:""}<div class="big-rule">⭕ ${esc(x.rule||"照參考照片購買")}</div>${x.norule?`<div class="notice">❌ ${esc(x.norule||"")}</div>`:""}${x.backup?`<div class="notice"><b>找不到時：</b>${esc(x.backup||"")}</div>`:""}${x.mustConfirm?`<div class="notice"><b>🚨 這件禁止自己判斷</b><br>找到後請先拍照，等對方確認。</div>`:""}${x.photo?`<p><b>你拍的照片：</b></p><img class="photo" src="${x.photo}">${x.status==="found"&&!x.mustConfirm?`<div class="notice"><b>照片已上傳。</b><br>如果你確定就是這個，可以直接買；不確定就留在待確認。</div>`:""}${x.status==="help"?`<div class="notice"><b>🆘 已送出求救</b><br>照片已留下，等對方查看。</div>`:""}`:""}<div class="actions"><label class="btn primary full" style="text-align:center">📸 找到了，拍照確認<input hidden type="file" accept="image/*" capture="environment" onchange="uploadFound(event,${i})"></label>${x.mustConfirm?`<button class="secondary" disabled>🔒 等對方確認</button>`:`<button class="success" onclick="setStatus(${i},'done');closeModal()">🛍️ ${x.photo?"照片已上傳，直接買":"已經買了"}</button>`}<button class="danger" onclick="setStatus(${i},'no');closeModal()">❌ 店員說沒貨</button><label class="btn secondary full" style="text-align:center">🆘 我看不懂，拍照求救<input hidden type="file" accept="image/*" capture="environment" onchange="uploadHelp(event,${i})"></label></div>`;modal.classList.add("show")}
+function openItem(i){let x=items[i],b=badge(x.status);modalBody.innerHTML=`<div class="muted">代購任務</div><h1>${esc(x.name)} ×${x.qty}</h1>${x.ref?`<img class="photo" src="${x.ref}">`:""}<div class="big-rule">⭕ ${esc(x.rule||"照參考照片購買")}</div>${x.norule?`<div class="notice">❌ ${esc(x.norule)}</div>`:""}${x.backup?`<div class="notice"><b>找不到時：</b>${esc(x.backup)}</div>`:""}${x.mustConfirm?`<div class="notice"><b>🚨 這件禁止自己判斷</b><br>找到後請先拍照，等對方確認。</div>`:""}${x.photo?`<p><b>你拍的照片：</b></p><img class="photo" src="${x.photo}">${x.status==="found"&&!x.mustConfirm?`<div class="notice"><b>照片已上傳。</b><br>如果你確定就是這個，可以直接買；不確定就留在待確認。</div>`:""}${x.status==="help"?`<div class="notice"><b>🆘 已送出求救</b><br>照片已留下，等對方查看。</div>`:""}`:""}<div class="actions"><label class="btn primary full" style="text-align:center">📸 找到了，拍照確認<input hidden type="file" accept="image/*" capture="environment" onchange="uploadFound(event,${i})"></label>${x.mustConfirm?`<button class="secondary" disabled>🔒 等對方確認</button>`:`<button class="success" onclick="setStatus(${i},'done');closeModal()">🛍️ ${x.photo?"照片已上傳，直接買":"已經買了"}</button>`}<button class="danger" onclick="setStatus(${i},'no');closeModal()">❌ 店員說沒貨</button><label class="btn secondary full" style="text-align:center">🆘 我看不懂，拍照求救<input hidden type="file" accept="image/*" capture="environment" onchange="uploadHelp(event,${i})"></label></div>`;modal.classList.add("show")}
 function closeModal(){modal.classList.remove("show")}
 function setStatus(i,s){items[i].status=s;save();render()}
 function uploadFound(e,i){let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{items[i].photo=r.result;items[i].status="found";save();render();openItem(i)};r.readAsDataURL(f)}
@@ -177,9 +95,9 @@ function editItem(i){
  modalBody.innerHTML=`<div class="muted">編輯商品</div><h1>${esc(x.name)}</h1>
  <label>商品名稱</label><input id="eName" value="${esc(x.name)}">
  <label>數量</label><input id="eQty" type="number" min="1" value="${x.qty}">
- <label>必買條件</label><input id="eRule" value="${esc(x.rule||"")}">
- <label>禁止條件</label><input id="eNoRule" value="${esc(x.norule||"")}">
- <label>備案</label><input id="eBackup" value="${esc(x.backup||"")}">
+ <label>必買條件</label><input id="eRule" value="${esc(x.rule)}">
+ <label>禁止條件</label><input id="eNoRule" value="${esc(x.norule)}">
+ <label>備案</label><input id="eBackup" value="${esc(x.backup)}">
  <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input id="eConfirm" type="checkbox" style="width:auto;margin:0" ${x.mustConfirm?"checked":""}> 絕對不要自己判斷：一定要拍照等確認</label>
  <button class="primary" style="width:100%" onclick="saveEdit(${i})">儲存修改</button>`;
  modal.classList.add("show");
@@ -194,5 +112,5 @@ function changeRef(i){
 function saveRef(e,i){let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{items[i].ref=r.result;save();render();closeModal()};r.readAsDataURL(f)}
 
 function switchRole(r){buyerView.classList.toggle("hidden",r!=="buyer");ownerView.classList.toggle("hidden",r!=="owner");buyerTab.classList.toggle("active",r==="buyer");ownerTab.classList.toggle("active",r==="owner");roleLabel.textContent=r==="buyer"?"代購模式":"清單建立者"}
-tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();pullCloud();setInterval(pullCloud,5000);
+tripInput?.addEventListener("change",()=>{trip=tripInput.value;save();render()});render();
 </script></body></html>
